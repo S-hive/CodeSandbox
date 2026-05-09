@@ -26,7 +26,7 @@ public class ExecuteCodeResponse {
     /**
      * 执行状态
      */
-    private Integer statue;
+    private Integer status;
 
     /**
      * 判题信息
