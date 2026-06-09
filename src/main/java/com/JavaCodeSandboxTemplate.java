@@ -2,19 +2,24 @@ package com;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import com.Utils.JavaVersionUtils;
+import com.Utils.ProcessExecutor;
 import com.Utils.ProcessUtils;
 import com.model.ExecuteCodeRequest;
 import com.model.ExecuteCodeResponse;
 import com.model.ExecuteMessage;
 import com.model.JudgeInfo;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StopWatch;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,118 +30,131 @@ public class JavaCodeSandboxTemplate implements CodeSandbox {
 
     private static final String GLOBAL_JAVA_CLASS_NAME = "Main.java";
 
+    @Value("${sandbox.security.enabled:true}")
+    private boolean securityManagerEnabled;
+
     @Override
     public ExecuteCodeResponse executeCode(ExecuteCodeRequest executeCodeRequest) {
         List<String> inputList = executeCodeRequest.getInputList();
         String code = executeCodeRequest.getCode();
         String language = executeCodeRequest.getLanguage();
         File userCodeFile = saveCodeToFile(code);
-        // 编译代码，得到 class 文件
-        ExecuteMessage compileFileExecuteMessage = compileFile(userCodeFile);
-        System.out.println("compileFileExecuteMessage = " + compileFileExecuteMessage);
-        // 执行代码, 得到 class 文件
-        List<ExecuteMessage> executeMessageList = runFile(userCodeFile, inputList);
-
-        // 收集整理输出结果
-        ExecuteCodeResponse outputResponse = getOutputResponse(executeMessageList);
-
-        // 文件清理
-        boolean b = deleteFile(userCodeFile);
-        if (!b) {
-            log.error("删除文件失败, userCodeParentPath = {}", userCodeFile.getParentFile().getAbsolutePath());
+        try {
+            ExecuteMessage compileFileExecuteMessage = compileFile(userCodeFile);
+            System.out.println("compileFileExecuteMessage = " + compileFileExecuteMessage);
+            if (compileFileExecuteMessage.getExitValue() != 0) {
+                return getCompileErrorResponse(compileFileExecuteMessage);
+            }
+            List<ExecuteMessage> executeMessageList = runFile(userCodeFile, inputList);
+            return getOutputResponse(executeMessageList);
+        } catch (Exception e) {
+            log.error("代码沙箱执行异常", e);
+            return getErrorResponse(e);
+        } finally {
+            boolean deleted = deleteFile(userCodeFile);
+            if (!deleted) {
+                log.error("删除文件失败, userCodeParentPath = {}", userCodeFile.getParentFile().getAbsolutePath());
+            }
         }
-        return outputResponse;
     }
 
-
-    /**
-     * 把用户代码保存为文件
-     *
-     * @param code 用户代码
-     * @return
-     */
     public File saveCodeToFile(String code) {
-
         String userDir = System.getProperty("user.dir");
         String globalCodePathName = userDir + File.separator + GLOBAL_CODE_DIR_NAME;
-        // 判断全局代码目录是否存在，没有则新建
         if (!FileUtil.exist(globalCodePathName)) {
             FileUtil.mkdir(globalCodePathName);
         }
-
-        // 把用户的代码隔离存放
         String userCodeParentPath = globalCodePathName + File.separator + UUID.randomUUID();
         String userCodePath = userCodeParentPath + File.separator + GLOBAL_JAVA_CLASS_NAME;
-        File userCodeFile = FileUtil.writeString(code, userCodePath, StandardCharsets.UTF_8);
-        return userCodeFile;
+        return FileUtil.writeString(code, userCodePath, StandardCharsets.UTF_8);
     }
 
-    /**
-     * 编译代码，得到 class 文件
-     *
-     * @return
-     */
     public ExecuteMessage compileFile(File userCodeFile) {
-        String compileCmd = String.format("javac -encoding utf-8 %s", userCodeFile.getAbsolutePath());
         try {
-            Process compileProcess = Runtime.getRuntime().exec(compileCmd);
-            ExecuteMessage executeMessage = ProcessUtils.runProcessAndGetMessage(compileProcess, "编译");
-            if (executeMessage.getExitValue() != 0) {
-                throw new RuntimeException("编译错误");
-            }
-            return executeMessage;
+            Process compileProcess = ProcessExecutor.startCommand(Arrays.asList(
+                    ProcessExecutor.resolveJavacCommandFromRuntime(),
+                    "-encoding", "utf-8", userCodeFile.getAbsolutePath()));
+            return ProcessUtils.runProcessAndGetMessage(compileProcess, "编译");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * 执行代码, 得到 class 文件
-     *
-     * @param userCodeFile
-     * @param inputList
-     * @return
-     */
     public List<ExecuteMessage> runFile(File userCodeFile, List<String> inputList) {
         String userCodeParentPath = userCodeFile.getParentFile().getAbsolutePath();
-        // 执行代码，得到输出结果
+        String securityClasspath = getSecurityClasspath();
         List<ExecuteMessage> executeMessageList = new ArrayList<>();
+        String classpath = userCodeParentPath + File.pathSeparator + securityClasspath;
         for (String inputArgs : inputList) {
-            String runCmd = String.format("java -Dfile.encoding=UTF-8 -cp %s Main %s", userCodeParentPath, inputArgs);
             try {
                 StopWatch stopWatch = new StopWatch();
                 stopWatch.start();
-                Process runProcess = Runtime.getRuntime().exec(runCmd);
-                //ExecuteMessage executeMessage = ProcessUtils.runProcessAndGetMessage(runProcess, "运行");
+                Process runProcess = startUserCodeProcess(userCodeParentPath, classpath, inputArgs);
                 ExecuteMessage executeMessage = ProcessUtils.runInteractProcessAndGetMessage(runProcess, "运行", inputArgs);
                 executeMessageList.add(executeMessage);
                 stopWatch.stop();
                 executeMessage.setTime(stopWatch.getLastTaskTimeMillis());
+                log.info("运行完成 exit={} stdout={} stderr={}",
+                        executeMessage.getExitValue(),
+                        executeMessage.getMessage(),
+                        executeMessage.getErrorMessage());
             } catch (Exception e) {
-                // 错误处理
-                throw new RuntimeException("程序执行异常", e);
+                log.error("运行失败 inputArgs={}", inputArgs, e);
+                ExecuteMessage errorMessage = new ExecuteMessage();
+                errorMessage.setErrorMessage(e.getMessage());
+                executeMessageList.add(errorMessage);
             }
         }
         return executeMessageList;
     }
 
     /**
-     * 获取输出结果
-     *
-     * @param executeMessageList
-     * @return
+     * 获取包含 SandboxRunner / DefaultSecurityManager 的 classpath（当前应用 jar 或 classes 目录）
      */
+    /**
+     * 启动用户代码进程：优先 SandboxRunner+SecurityManager，不支持时降级直接运行 Main
+     */
+    private Process startUserCodeProcess(String sandboxDir, String classpath, String inputArgs) throws IOException {
+        List<String> jvmArgs = new ArrayList<>();
+        jvmArgs.add("-Dfile.encoding=UTF-8");
+        if (securityManagerEnabled) {
+            if (JavaVersionUtils.needSecurityManagerAllowFlag()) {
+                jvmArgs.add("-Djava.security.manager=allow");
+            }
+            jvmArgs.add("-Dsandbox.dir=" + sandboxDir);
+            return ProcessExecutor.startJava(jvmArgs, classpath, "com.security.SandboxRunner", inputArgs);
+        }
+        return ProcessExecutor.startJava(jvmArgs, classpath, "Main", inputArgs);
+    }
+
+    private String getSecurityClasspath() {
+        try {
+            URI uri = this.getClass().getProtectionDomain().getCodeSource().getLocation().toURI();
+            return new File(uri).getAbsolutePath();
+        } catch (Exception e) {
+            throw new RuntimeException("解析安全模块 classpath 失败", e);
+        }
+    }
+
     public ExecuteCodeResponse getOutputResponse(List<ExecuteMessage> executeMessageList) {
         ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
         List<String> outputList = new ArrayList<>();
-        // 取用时最大时
         Long maxTime = 0L;
+        boolean hasError = false;
         for (ExecuteMessage executeMessage : executeMessageList) {
             String errorMessage = executeMessage.getErrorMessage();
-            if (StrUtil.isNotBlank(errorMessage)) {
-                executeCodeResponse.setMessage(errorMessage);
-                // 用户代码执行中存在错误
+            Integer exitValue = executeMessage.getExitValue();
+            if (StrUtil.isNotBlank(errorMessage)
+                    || (exitValue != null && exitValue != 0)
+                    || StrUtil.isBlank(executeMessage.getMessage())) {
+                String msg = StrUtil.isNotBlank(errorMessage)
+                        ? errorMessage
+                        : (exitValue != null && exitValue != 0
+                        ? "进程异常退出，exitCode=" + exitValue
+                        : "程序无输出");
+                executeCodeResponse.setMessage(msg);
                 executeCodeResponse.setStatus(3);
+                hasError = true;
                 break;
             }
             outputList.add(executeMessage.getMessage());
@@ -145,24 +163,16 @@ public class JavaCodeSandboxTemplate implements CodeSandbox {
                 maxTime = Math.max(time, maxTime);
             }
         }
-        // 正常运行完成
-        if (outputList.size() == executeMessageList.size()) {
+        if (!hasError && outputList.size() == executeMessageList.size()) {
             executeCodeResponse.setStatus(1);
         }
         executeCodeResponse.setOutputList(outputList);
         JudgeInfo judgeInfo = new JudgeInfo();
         judgeInfo.setTime(maxTime);
-        // judgeInfo.setMemory();
         executeCodeResponse.setJudgeInfo(judgeInfo);
         return executeCodeResponse;
     }
 
-    /**
-     * 删除文件
-     *
-     * @param userCodeFile
-     * @return
-     */
     public boolean deleteFile(File userCodeFile) {
         String userCodeParentPath = userCodeFile.getParentFile().getAbsolutePath();
         if (userCodeFile.getParentFile() != null) {
@@ -173,17 +183,19 @@ public class JavaCodeSandboxTemplate implements CodeSandbox {
         return true;
     }
 
-    /**
-     * 获取错误响应
-     *
-     * @param e
-     * @return
-     */
+    private ExecuteCodeResponse getCompileErrorResponse(ExecuteMessage compileMessage) {
+        ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
+        executeCodeResponse.setOutputList(new ArrayList<>());
+        executeCodeResponse.setMessage(compileMessage.getErrorMessage());
+        executeCodeResponse.setStatus(4);
+        executeCodeResponse.setJudgeInfo(new JudgeInfo());
+        return executeCodeResponse;
+    }
+
     private ExecuteCodeResponse getErrorResponse(Throwable e) {
         ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
         executeCodeResponse.setOutputList(new ArrayList<>());
         executeCodeResponse.setMessage(e.getMessage());
-        // 表示代码沙箱错误
         executeCodeResponse.setStatus(2);
         executeCodeResponse.setJudgeInfo(new JudgeInfo());
         return executeCodeResponse;

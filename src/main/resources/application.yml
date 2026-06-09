@@ -1,3 +1,8 @@
 # 应用服务 WEB 访问端口
 server:
   port: 8090
+
+# 用户代码 JVM 安全管理器（Java 21+ 不支持，可设为 false）
+sandbox:
+  security:
+    enabled: true

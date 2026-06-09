@@ -160,7 +160,7 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                 dockerClient
                         .execStartCmd(execId)
                         .exec(execStartResultCallback)
-                        .awaitCompletion(TIME_OUT, TimeUnit.MICROSECONDS);
+                        .awaitCompletion(TIME_OUT, TimeUnit.MILLISECONDS);
                 stopWatch.stop();
                 time = stopWatch.getLastTaskTimeMillis();
                 statsCmd.close();
@@ -173,7 +173,6 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
             executeMessageList.add(executeMessage);
             executeMessage.setMemory(maxMemory[0]);
             executeMessage.setTime(time);
-            executeMessageList.add(executeMessage);
         }
         return executeMessageList;
     }

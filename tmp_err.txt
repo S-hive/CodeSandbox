@@ -1,0 +1,49 @@
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.security.SandboxRunner (file:/D:/Liyalin/javafail/code-sandbox/target/classes/)
+WARNING: Please consider reporting this to the maintainers of com.security.SandboxRunner
+WARNING: System::setSecurityManager will be removed in a future release
+java.lang.reflect.InvocationTargetException
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:118)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at com.security.SandboxRunner.invokeUserMain(SandboxRunner.java:30)
+	at com.security.SandboxRunner.main(SandboxRunner.java:23)
+Caused by: java.util.ServiceConfigurationError: Locale provider adapter "CLDR"cannot be instantiated.
+	at java.base/sun.util.locale.provider.LocaleProviderAdapter.forType(LocaleProviderAdapter.java:205)
+	at java.base/sun.util.locale.provider.LocaleProviderAdapter.findAdapter(LocaleProviderAdapter.java:293)
+	at java.base/sun.util.locale.provider.LocaleProviderAdapter.getAdapter(LocaleProviderAdapter.java:264)
+	at java.base/java.text.NumberFormat.getInstance(NumberFormat.java:963)
+	at java.base/java.text.NumberFormat.getNumberInstance(NumberFormat.java:518)
+	at java.base/java.util.Scanner.useLocale(Scanner.java:1278)
+	at java.base/java.util.Scanner.<init>(Scanner.java:547)
+	at java.base/java.util.Scanner.<init>(Scanner.java:571)
+	at Main.main(Main.java:4)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	... 3 more
+Caused by: java.lang.reflect.InvocationTargetException
+	at java.base/jdk.internal.reflect.DirectConstructorHandleAccessor.newInstance(DirectConstructorHandleAccessor.java:74)
+	at java.base/java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:502)
+	at java.base/java.lang.reflect.Constructor.newInstance(Constructor.java:486)
+	at java.base/sun.util.locale.provider.LocaleProviderAdapter.forType(LocaleProviderAdapter.java:194)
+	... 12 more
+Caused by: java.util.ServiceConfigurationError: sun.util.locale.provider.LocaleDataMetaInfo: sun.util.resources.cldr.provider.CLDRLocaleDataMetaInfo Unable to get public no-arg constructor
+	at java.base/java.util.ServiceLoader.fail(ServiceLoader.java:586)
+	at java.base/java.util.ServiceLoader.getConstructor(ServiceLoader.java:679)
+	at java.base/java.util.ServiceLoader.loadProvider(ServiceLoader.java:906)
+	at java.base/java.util.ServiceLoader$ModuleServicesLookupIterator.hasNext(ServiceLoader.java:1084)
+	at java.base/java.util.ServiceLoader$2.hasNext(ServiceLoader.java:1309)
+	at java.base/java.util.ServiceLoader$3.hasNext(ServiceLoader.java:1393)
+	at java.base/sun.util.cldr.CLDRLocaleProviderAdapter.lambda$new$0(CLDRLocaleProviderAdapter.java:84)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:571)
+	at java.base/sun.util.cldr.CLDRLocaleProviderAdapter.<init>(CLDRLocaleProviderAdapter.java:83)
+	at java.base/jdk.internal.reflect.DirectConstructorHandleAccessor.newInstance(DirectConstructorHandleAccessor.java:62)
+	... 15 more
+Caused by: java.lang.SecurityException: È¨ÏÞ±»½ûÖ¹£º("java.lang.reflect.ReflectPermission" "suppressAccessChecks")
+	at com.security.DefaultSecurityManager.checkPermission(DefaultSecurityManager.java:64)
+	at com.security.DefaultSecurityManager.checkPermission(DefaultSecurityManager.java:36)
+	at java.base/java.lang.reflect.AccessibleObject.checkPermission(AccessibleObject.java:92)
+	at java.base/java.lang.reflect.Constructor.setAccessible(Constructor.java:185)
+	at java.base/java.util.ServiceLoader$1.run(ServiceLoader.java:668)
+	at java.base/java.util.ServiceLoader$1.run(ServiceLoader.java:663)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:571)
+	at java.base/java.util.ServiceLoader.getConstructor(ServiceLoader.java:674)
+	... 23 more
