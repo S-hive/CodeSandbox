@@ -16,7 +16,7 @@ import org.springframework.util.StopWatch;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +32,9 @@ public class JavaCodeSandboxTemplate implements CodeSandbox {
 
     @Value("${sandbox.security.enabled:true}")
     private boolean securityManagerEnabled;
+
+    @Value("${sandbox.security.classpath:}")
+    private String securityClasspath;
 
     @Override
     public ExecuteCodeResponse executeCode(ExecuteCodeRequest executeCodeRequest) {
@@ -127,10 +130,38 @@ public class JavaCodeSandboxTemplate implements CodeSandbox {
         return ProcessExecutor.startJava(jvmArgs, classpath, "Main", inputArgs);
     }
 
+    /**
+     * SecurityManager 子进程 classpath。Spring Boot fat jar 内嵌 BOOT-INF/classes，
+     * 无法直接作 -cp；云托管 Docker 需配合 /app/security-classes 或环境变量。
+     */
     private String getSecurityClasspath() {
+        String configured = StrUtil.trimToEmpty(securityClasspath);
+        if (StrUtil.isBlank(configured)) {
+            configured = StrUtil.trimToEmpty(System.getenv("SANDBOX_SECURITY_CLASSPATH"));
+        }
+        if (StrUtil.isNotBlank(configured)) {
+            File dir = new File(configured);
+            if (dir.exists()) {
+                return dir.getAbsolutePath();
+            }
+            throw new RuntimeException("安全模块 classpath 不存在: " + configured);
+        }
+        File dockerClasses = new File("/app/security-classes");
+        if (dockerClasses.isDirectory()) {
+            return dockerClasses.getAbsolutePath();
+        }
         try {
-            URI uri = this.getClass().getProtectionDomain().getCodeSource().getLocation().toURI();
-            return new File(uri).getAbsolutePath();
+            URL codeSource = this.getClass().getProtectionDomain().getCodeSource().getLocation();
+            if (codeSource == null) {
+                throw new RuntimeException("CodeSource 为空");
+            }
+            String location = codeSource.toString();
+            if (location.startsWith("jar:")) {
+                throw new RuntimeException("fat jar 环境请配置 sandbox.security.classpath 或 SANDBOX_SECURITY_CLASSPATH");
+            }
+            return new File(codeSource.toURI()).getAbsolutePath();
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("解析安全模块 classpath 失败", e);
         }

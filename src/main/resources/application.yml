@@ -6,3 +6,5 @@ server:
 sandbox:
   security:
     enabled: true
+    # 云托管 fat jar 部署时由 Dockerfile 注入 /app/security-classes
+    classpath: ${SANDBOX_SECURITY_CLASSPATH:}
